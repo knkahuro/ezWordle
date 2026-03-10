@@ -41,13 +41,13 @@ class GameModel {
     required this.maxAttempts,
   });
 
-  factory GameModel.initial(int maxAttempts) {
+  factory GameModel.initial(int maxAttempts, int wordLength) {
     return GameModel(
       targetWord: '',
       guesses: List.generate(
         maxAttempts,
         (_) => List.generate(
-          GameConfig.wordLength,
+          wordLength,
           (_) => const Letter(char: ''),
         ),
       ),
@@ -87,11 +87,11 @@ class GameModel {
   }
 
   bool get canSubmit {
-    return currentCol == GameConfig.wordLength;
+    return currentCol == targetWord.length;
   }
 
   bool get canType {
-    return !isGameOver && currentCol < GameConfig.wordLength;
+    return !isGameOver && currentCol < targetWord.length;
   }
 
   bool get canDelete {

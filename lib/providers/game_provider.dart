@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -6,29 +7,36 @@ import '../models/game_model.dart';
 import '../utils/constants.dart';
 
 class GameProvider extends ChangeNotifier {
-  GameModel _game = GameModel.initial(GameConfig.defaultMaxAttempts);
+  GameModel _game = GameModel.initial(GameConfig.defaultMaxAttempts, GameConfig.defaultWordLength);
   List<String> _wordList = [];
   Difficulty _difficulty = Difficulty.medium;
+  WordLength _wordLength = WordLength.five;
   bool _isLoading = true;
+  final _shakeSignalController = StreamController<int>.broadcast();
 
   GameModel get game => _game;
   List<String> get wordList => _wordList;
   Difficulty get difficulty => _difficulty;
+  WordLength get wordLength => _wordLength;
   bool get isLoading => _isLoading;
+  Stream<int> get shakeSignal => _shakeSignalController.stream;
 
   GameProvider() {
     _loadWords();
   }
 
   Future<void> _loadWords() async {
+    _isLoading = true;
+    notifyListeners();
+    
     try {
-      final String csvString = await rootBundle.loadString('assets/words.csv');
+      final String csvString = await rootBundle.loadString(_wordLength.assetPath);
       final List<List<dynamic>> csvTable = const CsvToListConverter().convert(csvString);
       
       _wordList = csvTable
           .where((row) => row.length >= 2)
           .map((row) => row[1].toString().toLowerCase().trim())
-          .where((word) => word.length == GameConfig.wordLength)
+          .where((word) => word.length == _wordLength.length)
           .toList();
       
       _isLoading = false;
@@ -36,7 +44,11 @@ class GameProvider extends ChangeNotifier {
     } catch (e) {
       debugPrint('Error loading words: $e');
       // Fallback word list
-      _wordList = ['about', 'above', 'abuse', 'actor', 'acute'];
+      _wordList = _wordLength == WordLength.four 
+          ? ['test', 'word', 'game', 'play']
+          : _wordLength == WordLength.five
+              ? ['about', 'above', 'abuse', 'actor', 'acute']
+              : ['action', 'active', 'actual', 'advice', 'affect'];
       _isLoading = false;
       _startNewGame();
     }
@@ -48,13 +60,18 @@ class GameProvider extends ChangeNotifier {
     notifyListeners();
   }
 
+  void setWordLength(WordLength wordLength) {
+    _wordLength = wordLength;
+    _loadWords();
+  }
+
   void _startNewGame() {
     if (_wordList.isEmpty) return;
     
     final random = Random();
     final targetWord = _wordList[random.nextInt(_wordList.length)].toLowerCase();
     
-    _game = GameModel.initial(_difficulty.maxAttempts).copyWith(
+    _game = GameModel.initial(_difficulty.maxAttempts, _wordLength.length).copyWith(
       targetWord: targetWord,
     );
     notifyListeners();
@@ -101,10 +118,10 @@ class GameProvider extends ChangeNotifier {
     
     final guess = _game.currentGuess.toLowerCase();
     
-    // Check if word is valid (in our list or could allow any 5-letter word)
+    // Check if word is valid
     if (!_wordList.contains(guess)) {
-      // For this implementation, we'll accept any 5-letter word
-      // You could show an error message here
+      _shakeSignalController.add(_game.currentRow);
+      return;
     }
     
     final targetChars = _game.targetWord.split('');
@@ -112,7 +129,7 @@ class GameProvider extends ChangeNotifier {
     final newKeyboardStatus = Map<String, LetterStatus>.from(_game.keyboardStatus);
     
     // First pass: mark correct positions
-    for (int i = 0; i < GameConfig.wordLength; i++) {
+    for (int i = 0; i < _game.targetWord.length; i++) {
       final char = newRow[i].char;
       if (char == targetChars[i]) {
         newRow[i] = newRow[i].copyWith(status: LetterStatus.correct);
@@ -122,7 +139,7 @@ class GameProvider extends ChangeNotifier {
     }
     
     // Second pass: mark present and absent
-    for (int i = 0; i < GameConfig.wordLength; i++) {
+    for (int i = 0; i < _game.targetWord.length; i++) {
       if (newRow[i].status == LetterStatus.correct) continue;
       
       final char = newRow[i].char;
@@ -178,4 +195,10 @@ class GameProvider extends ChangeNotifier {
       }
     }
   }
+  @override
+  void dispose() {
+    _shakeSignalController.close();
+    super.dispose();
+  }
 }
+

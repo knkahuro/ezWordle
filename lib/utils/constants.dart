@@ -15,10 +15,22 @@ class AppColors {
 }
 
 class GameConfig {
-  static const int wordLength = 5;
+  static const int defaultWordLength = 5;
   static const int defaultMaxAttempts = 6;
   static const int easyMaxAttempts = 8;
   static const int hardMaxAttempts = 4;
+}
+
+enum WordLength {
+  four(4, '4 Letters', 'assets/4_letter_words.csv'),
+  five(5, '5 Letters', 'assets/5_letter_words.csv'),
+  six(6, '6 Letters', 'assets/6_letter_words.csv');
+
+  final int length;
+  final String label;
+  final String assetPath;
+
+  const WordLength(this.length, this.label, this.assetPath);
 }
 
 enum Difficulty {
