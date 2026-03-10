@@ -17,6 +17,7 @@ class GameScreen extends StatefulWidget {
 
 class _GameScreenState extends State<GameScreen> {
   late ConfettiController _confettiController;
+  final FocusNode _focusNode = FocusNode();
   final List<StreamController<void>> _shakeControllers = List.generate(
     Difficulty.easy.maxAttempts, // Max possible rows
     (_) => StreamController<void>.broadcast(),
@@ -42,6 +43,7 @@ class _GameScreenState extends State<GameScreen> {
   @override
   void dispose() {
     _confettiController.dispose();
+    _focusNode.dispose();
     _shakeSubscription?.cancel();
     for (var controller in _shakeControllers) {
       controller.close();
@@ -52,7 +54,7 @@ class _GameScreenState extends State<GameScreen> {
   @override
   Widget build(BuildContext context) {
     return KeyboardListener(
-      focusNode: FocusNode(),
+      focusNode: _focusNode,
       autofocus: true,
       onKeyEvent: (event) => context.read<GameProvider>().handleKeyEvent(event),
       child: Stack(
@@ -60,7 +62,8 @@ class _GameScreenState extends State<GameScreen> {
           Scaffold(
             drawer: _buildDrawer(context),
             appBar: AppBar(
-              title: const Text('WORDLE'),
+              title: const Text('Wordle'),
+
               actions: [
                 IconButton(
                   icon: const Icon(Icons.settings),
@@ -70,7 +73,7 @@ class _GameScreenState extends State<GameScreen> {
             ),
             body: Consumer<GameProvider>(
               builder: (context, provider, child) {
-                if (provider.isLoading) {
+                if (provider.isLoading && provider.wordList.isEmpty) {
                   return const Center(
                     child: CircularProgressIndicator(
                       color: AppColors.text,
@@ -83,47 +86,65 @@ class _GameScreenState extends State<GameScreen> {
                   _confettiController.play();
                 }
 
-                return Column(
+                return Stack(
                   children: [
-                    // Difficulty indicator
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
-                      child: Text(
-                        '${provider.difficulty.label} - ${provider.wordList.length} words',
-                        style: TextStyle(
-                          color: AppColors.text.withAlpha(153),
-                          fontSize: 14,
-                        ),
-                      ),
-                    ),
-                    
-                    // Game Grid
-                    Expanded(
-                      child: Center(
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 500),
-                          child: Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: _buildGrid(provider),
+                    Column(
+                      children: [
+                        // Difficulty indicator
+                        Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Text(
+                            '${provider.difficulty.label} - ${provider.wordList.length} words',
+                            style: TextStyle(
+                              color: AppColors.text.withAlpha(153),
+                              fontSize: 14,
+                            ),
                           ),
                         ),
-                      ),
+                        
+                        // Game Grid
+                        Expanded(
+                          child: Center(
+                            child: ConstrainedBox(
+                              constraints: const BoxConstraints(maxWidth: 500),
+                              child: Padding(
+                                padding: const EdgeInsets.symmetric(horizontal: 16),
+                                child: _buildGrid(provider),
+                              ),
+                            ),
+                          ),
+                        ),
+                        
+                        // Virtual Keyboard
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: VirtualKeyboard(
+                            keyboardStatus: provider.game.keyboardStatus,
+                            onKeyPressed: (letter) => provider.typeLetter(letter),
+                            onDelete: () => provider.deleteLetter(),
+                            onEnter: () => provider.submitGuess(),
+                          ),
+                        ),
+                      ],
                     ),
                     
-                    // Game Over Message
+                    // Game Over Overlay
                     if (provider.game.isGameOver)
-                      _buildGameOverMessage(context, provider),
-                    
-                    // Virtual Keyboard
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: VirtualKeyboard(
-                        keyboardStatus: provider.game.keyboardStatus,
-                        onKeyPressed: provider.typeLetter,
-                        onDelete: provider.deleteLetter,
-                        onEnter: provider.submitGuess,
+                      Center(
+                        child: _buildGameOverMessage(context, provider),
                       ),
-                    ),
+                      
+                    if (provider.isLoading)
+                      const Positioned(
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        child: LinearProgressIndicator(
+                          backgroundColor: Colors.transparent,
+                          color: AppColors.correct,
+                          minHeight: 2,
+                        ),
+                      ),
                   ],
                 );
               },
@@ -188,13 +209,21 @@ class _GameScreenState extends State<GameScreen> {
     final game = provider.game;
     
     return Container(
-      margin: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.symmetric(horizontal: 32),
+      padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: game.isWon ? AppColors.correct : AppColors.absent,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(16),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withAlpha(128),
+            blurRadius: 20,
+            spreadRadius: 5,
+          ),
+        ],
       ),
       child: Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
           Text(
             game.isWon ? 'Congratulations!' : 'Game Over',
@@ -248,7 +277,7 @@ class _GameScreenState extends State<GameScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 const Text(
-                  'WORDLE',
+                  'ezWordle',
                   style: TextStyle(
                     color: AppColors.text,
                     fontSize: 24,
@@ -326,7 +355,6 @@ class _GameScreenState extends State<GameScreen> {
   }
 
   void _showSettings(BuildContext context) {
-    final provider = context.read<GameProvider>();
     
     showModalBottomSheet(
       context: context,
@@ -335,8 +363,9 @@ class _GameScreenState extends State<GameScreen> {
         borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
       ),
       builder: (context) => SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(16),
+        child: Consumer<GameProvider>(
+          builder: (context, provider, child) => SingleChildScrollView(
+            padding: const EdgeInsets.all(16),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -352,79 +381,116 @@ class _GameScreenState extends State<GameScreen> {
                 ),
               ),
               const SizedBox(height: 24),
-              const Text(
-                'Word Length',
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 16),
-              RadioGroup<WordLength>(
-                groupValue: provider.wordLength,
-                onChanged: (value) {
-                  if (value != null) {
-                    provider.setWordLength(value);
-                    _confettiController.stop();
-                    Navigator.pop(context);
-                  }
-                },
-                child: Column(
-                  children: WordLength.values.map((wl) => RadioListTile<WordLength>(
-                    title: Text(
-                      wl.label,
-                      style: const TextStyle(color: AppColors.text),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Word Length',
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
                     ),
-                    value: wl,
-                    activeColor: AppColors.correct,
-                  )).toList(),
+                  ),
+                  Text(
+                    provider.wordLength.label,
+                    style: const TextStyle(
+                      color: AppColors.correct,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  activeTrackColor: AppColors.correct,
+                  inactiveTrackColor: AppColors.border,
+                  thumbColor: AppColors.correct,
+                  overlayColor: AppColors.correct.withAlpha(51),
+                  valueIndicatorColor: AppColors.correct,
+                  valueIndicatorTextStyle: const TextStyle(color: Colors.white),
+                  showValueIndicator: ShowValueIndicator.onDrag,
+                  tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 4),
+                  activeTickMarkColor: Colors.white.withAlpha(128),
+                  inactiveTickMarkColor: AppColors.text.withAlpha(64),
+                ),
+                child: Slider(
+                  value: provider.wordLength.length.toDouble(),
+                  min: 4,
+                  max: 6,
+                  divisions: 2,
+                  label: provider.wordLength.label,
+                  onChanged: (value) {
+                    final newLength = WordLength.values.firstWhere(
+                      (wl) => wl.length == value.round(),
+                    );
+                    if (newLength != provider.wordLength) {
+                      provider.setWordLength(newLength);
+                      _confettiController.stop();
+                    }
+                  },
                 ),
               ),
 
               const Divider(height: 32, color: AppColors.border),
-              const Text(
-                'Difficulty',
-                style: TextStyle(
-                  color: AppColors.text,
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                   const Text(
+                    'Difficulty',
+                    style: TextStyle(
+                      color: AppColors.text,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                   Text(
+                    provider.difficulty.label,
+                    style: const TextStyle(
+                      color: AppColors.correct,
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 8),
               Text(
-                'Changes the number of attempts you get',
+                'Changes the number of attempts: ${provider.difficulty.maxAttempts} tries',
                 style: TextStyle(
                   color: AppColors.text.withAlpha(153),
                   fontSize: 12,
                 ),
               ),
-              const SizedBox(height: 16),
-              RadioGroup<Difficulty>(
-                groupValue: provider.difficulty,
-                onChanged: (value) {
-                  if (value != null) {
-                    provider.setDifficulty(value);
-                    _confettiController.stop();
-                    Navigator.pop(context);
-                  }
-                },
-                child: Column(
-                  children: Difficulty.values.map((difficulty) => RadioListTile<Difficulty>(
-                    title: Text(
-                      difficulty.label,
-                      style: const TextStyle(color: AppColors.text),
-                    ),
-                    subtitle: Text(
-                      '${difficulty.maxAttempts} attempts',
-                      style: TextStyle(
-                        color: AppColors.text.withAlpha(153),
-                        fontSize: 12,
-                      ),
-                    ),
-                    value: difficulty,
-                    activeColor: AppColors.correct,
-                  )).toList(),
+              const SizedBox(height: 8),
+              SliderTheme(
+                data: SliderTheme.of(context).copyWith(
+                  activeTrackColor: AppColors.correct,
+                  inactiveTrackColor: AppColors.border,
+                  thumbColor: AppColors.correct,
+                  overlayColor: AppColors.correct.withAlpha(51),
+                  valueIndicatorColor: AppColors.correct,
+                  valueIndicatorTextStyle: const TextStyle(color: Colors.white),
+                  showValueIndicator: ShowValueIndicator.onDrag,
+                  tickMarkShape: const RoundSliderTickMarkShape(tickMarkRadius: 4),
+                  activeTickMarkColor: Colors.white.withAlpha(128),
+                  inactiveTickMarkColor: AppColors.text.withAlpha(64),
+                ),
+                child: Slider(
+                  value: Difficulty.values.indexOf(provider.difficulty).toDouble(),
+                  min: 0,
+                  max: 2,
+                  divisions: 2,
+                  label: provider.difficulty.label,
+                  onChanged: (value) {
+                    final newDifficulty = Difficulty.values[value.round()];
+                    if (newDifficulty != provider.difficulty) {
+                      provider.setDifficulty(newDifficulty);
+                      _confettiController.stop();
+                    }
+                  },
                 ),
               ),
 
@@ -432,8 +498,9 @@ class _GameScreenState extends State<GameScreen> {
           ),
         ),
       ),
-    );
-  }
+    ),
+  );
+}
 
   void _showHowToPlay(BuildContext context) {
     showDialog(
@@ -546,7 +613,7 @@ class _GameScreenState extends State<GameScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Wordle Game',
+              'ezWordle',
               style: TextStyle(
                 color: AppColors.text,
                 fontWeight: FontWeight.bold,

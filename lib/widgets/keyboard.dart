@@ -70,14 +70,15 @@ class VirtualKeyboard extends StatelessWidget {
         color: _getKeyColor(key),
         borderRadius: BorderRadius.circular(4),
         child: InkWell(
-          onTap: () => onKeyPressed(key.toLowerCase()),
+          onTap: () {
+            debugPrint('Key pressed: $key');
+            onKeyPressed(key.toLowerCase());
+          },
           borderRadius: BorderRadius.circular(4),
           child: Container(
             width: 32,
             height: 48,
-            decoration: BoxDecoration(
-              borderRadius: BorderRadius.circular(4),
-            ),
+            color: Colors.transparent, // Ensure it's hit-testable
             child: Center(
               child: Text(
                 key,
@@ -100,21 +101,21 @@ class VirtualKeyboard extends StatelessWidget {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        // Enter key
+        // Backspace key
         _buildActionKey(
-          'ENTER',
-          onEnter,
+          '⌫',
+          onDelete,
           width: 52,
         ),
         const SizedBox(width: 4),
         // Letter keys
         ..._row3.map((key) => _buildKey(key)),
         const SizedBox(width: 4),
-        // Backspace key
+        // Enter key
         _buildActionKey(
-          '⌫',
-          onDelete,
-          width: 52,
+          'ENTER',
+          onEnter,
+          width: 52, 
         ),
       ],
     );
@@ -125,14 +126,15 @@ class VirtualKeyboard extends StatelessWidget {
       color: AppColors.surface,
       borderRadius: BorderRadius.circular(4),
       child: InkWell(
-        onTap: onTap,
+        onTap: () {
+          debugPrint('Action key pressed: $label');
+          onTap();
+        },
         borderRadius: BorderRadius.circular(4),
         child: Container(
           width: width,
           height: 48,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(4),
-          ),
+          color: Colors.transparent, // Ensure it's hit-testable
           child: Center(
             child: Text(
               label,

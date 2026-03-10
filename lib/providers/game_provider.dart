@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:math';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:csv/csv.dart';
 import '../models/game_model.dart';
 import '../utils/constants.dart';
 
@@ -22,7 +21,8 @@ class GameProvider extends ChangeNotifier {
   Stream<int> get shakeSignal => _shakeSignalController.stream;
 
   GameProvider() {
-    _loadWords();
+    // Start loading in the next microtask to ensure the provider is ready
+    Future.microtask(() => _loadWords());
   }
 
   Future<void> _loadWords() async {
@@ -31,45 +31,51 @@ class GameProvider extends ChangeNotifier {
     
     try {
       final String csvString = await rootBundle.loadString(_wordLength.assetPath);
-      final List<List<dynamic>> csvTable = const CsvToListConverter().convert(csvString);
       
-      _wordList = csvTable
-          .where((row) => row.length >= 2)
-          .map((row) => row[1].toString().toLowerCase().trim())
-          .where((word) => word.length == _wordLength.length)
-          .toList();
+      // Removed compute as CSV parsing for this size is fast and compute can hang on Web
+      final List<String> words = _parseCsvData({
+        'csvString': csvString,
+        'length': _wordLength.length,
+      });
       
-      _isLoading = false;
-      _startNewGame();
+      if (words.isNotEmpty) {
+        _wordList = words;
+      } else {
+        throw Exception('No valid words found in CSV');
+      }
     } catch (e) {
       debugPrint('Error loading words: $e');
-      // Fallback word list
-      _wordList = _wordLength == WordLength.four 
-          ? ['test', 'word', 'game', 'play']
-          : _wordLength == WordLength.five
-              ? ['about', 'above', 'abuse', 'actor', 'acute']
-              : ['action', 'active', 'actual', 'advice', 'affect'];
+      _wordList = []; // Reset if load fails
+    } finally {
       _isLoading = false;
       _startNewGame();
     }
   }
 
   void setDifficulty(Difficulty difficulty) {
+    if (_difficulty == difficulty) return;
     _difficulty = difficulty;
     _startNewGame();
     notifyListeners();
   }
 
   void setWordLength(WordLength wordLength) {
+    if (_wordLength == wordLength) return;
     _wordLength = wordLength;
+    notifyListeners(); // Update UI immediately
     _loadWords();
   }
 
   void _startNewGame() {
-    if (_wordList.isEmpty) return;
+    if (_wordList.isEmpty) {
+      debugPrint('Error: Word list is empty. Game cannot start.');
+      notifyListeners();
+      return;
+    }
     
     final random = Random();
-    final targetWord = _wordList[random.nextInt(_wordList.length)].toLowerCase();
+    final targetWord = _wordList[random.nextInt(_wordList.length)].toLowerCase().trim();
+    debugPrint('Starting new game with targetWord: "$targetWord" (length: ${targetWord.length})');
     
     _game = GameModel.initial(_difficulty.maxAttempts, _wordLength.length).copyWith(
       targetWord: targetWord,
@@ -114,12 +120,25 @@ class GameProvider extends ChangeNotifier {
   }
 
   void submitGuess() {
-    if (_game.isGameOver || !_game.canSubmit) return;
+    final length = _game.targetWord.isNotEmpty ? _game.targetWord.length : _game.wordLength;
+    debugPrint('submitGuess: currentCol=${_game.currentCol}, targetLen=$length, targetWord="${_game.targetWord}"');
+    
+    if (_game.isGameOver) {
+      debugPrint('submitGuess blocked: Game is over');
+      return;
+    }
+    
+    if (!_game.canSubmit) {
+      debugPrint('submitGuess blocked: canSubmit is false (currentCol != length)');
+      return;
+    }
     
     final guess = _game.currentGuess.toLowerCase();
+    debugPrint('Checking validity of guess: "$guess" against word list of size ${_wordList.length}');
     
     // Check if word is valid
     if (!_wordList.contains(guess)) {
+      debugPrint('Invalid word: "$guess"');
       _shakeSignalController.add(_game.currentRow);
       return;
     }
@@ -183,7 +202,7 @@ class GameProvider extends ChangeNotifier {
     if (event is KeyDownEvent) {
       final key = event.logicalKey;
       
-      if (key == LogicalKeyboardKey.enter) {
+      if (key == LogicalKeyboardKey.enter || key == LogicalKeyboardKey.numpadEnter) {
         submitGuess();
       } else if (key == LogicalKeyboardKey.backspace) {
         deleteLetter();
@@ -200,5 +219,29 @@ class GameProvider extends ChangeNotifier {
     _shakeSignalController.close();
     super.dispose();
   }
+}
+
+List<String> _parseCsvData(Map<String, dynamic> params) {
+  final String csvString = params['csvString'] as String;
+  final int targetLength = params['length'] as int;
+  
+  // Use a highly resilient approach: 
+  // 1. Find all alpha-sequences that match the target length
+  // 2. Ensure they are isolated (not part of a larger alphanumeric sequence)
+  // This bypasses any CSV parsing, encoding, or newline issues.
+  final wordRegex = RegExp(r'\b[a-zA-Z]{' + targetLength.toString() + r'}\b');
+  final matches = wordRegex.allMatches(csvString);
+  
+  final Set<String> words = {};
+  for (final match in matches) {
+    final word = match.group(0)!.toLowerCase();
+    // Double check it's pure alphabetical
+    if (RegExp(r'^[a-z]+$').hasMatch(word)) {
+      words.add(word);
+    }
+  }
+  
+  debugPrint('Resiliently parsed ${words.length} words for length $targetLength');
+  return words.toList();
 }
 

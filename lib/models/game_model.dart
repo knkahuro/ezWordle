@@ -82,16 +82,20 @@ class GameModel {
     );
   }
 
+  int get wordLength => guesses.isNotEmpty ? guesses[0].length : 5;
+
   String get currentGuess {
     return guesses[currentRow].map((l) => l.char).join();
   }
 
   bool get canSubmit {
-    return currentCol == targetWord.length;
+    final length = targetWord.isNotEmpty ? targetWord.length : wordLength;
+    return currentCol == length;
   }
 
   bool get canType {
-    return !isGameOver && currentCol < targetWord.length;
+    final length = targetWord.isNotEmpty ? targetWord.length : wordLength;
+    return !isGameOver && currentCol < length;
   }
 
   bool get canDelete {
